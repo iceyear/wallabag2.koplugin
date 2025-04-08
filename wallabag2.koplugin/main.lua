@@ -64,6 +64,12 @@ function Wallabag2:init()
     self.ignore_tags = ""
     self.auto_tags = ""
     self.articles_per_sync = 30  -- this is the max number of articles to get metadata for, this impacts number of epubs downloaded BUT potentially could skip ones already downloaded and not pick up new article metadata
+    
+    -- 默认超时设置（秒）
+    self.block_timeout = 30
+    self.total_timeout = 120
+    self.file_block_timeout = 10
+    self.file_total_timeout = 30
 
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
@@ -103,6 +109,19 @@ function Wallabag2:init()
     end
     if self.wb_settings.data.wallabag.articles_per_sync ~= nil then
         self.articles_per_sync = self.wb_settings.data.wallabag.articles_per_sync
+    end
+    -- 加载超时设置
+    if self.wb_settings.data.wallabag.block_timeout ~= nil then
+        self.block_timeout = self.wb_settings.data.wallabag.block_timeout
+    end
+    if self.wb_settings.data.wallabag.total_timeout ~= nil then
+        self.total_timeout = self.wb_settings.data.wallabag.total_timeout
+    end
+    if self.wb_settings.data.wallabag.file_block_timeout ~= nil then
+        self.file_block_timeout = self.wb_settings.data.wallabag.file_block_timeout
+    end
+    if self.wb_settings.data.wallabag.file_total_timeout ~= nil then
+        self.file_total_timeout = self.wb_settings.data.wallabag.file_total_timeout
     end
     self.remove_finished_from_history = self.wb_settings.data.wallabag.remove_finished_from_history or false
     self.download_queue = self.wb_settings.data.wallabag.download_queue or {}
@@ -345,6 +364,13 @@ function Wallabag2:addToMainMenu(menu_items)
                             self:saveSettings()
                         end,
                         separator = true,
+                    },
+                    {
+                        text = _("Timeout settings"),
+                        keep_menu_open = true,
+                        callback = function()
+                            self:editTimeoutSettings()
+                        end,
                     },
                     {
                         text = _("Help"),
@@ -655,10 +681,10 @@ function Wallabag2:callAPI(method, apiurl, headers, body, filepath, quiet)
     request.method = method
     if filepath ~= "" then
         request.sink = ltn12.sink.file(io.open(filepath, "w"))
-        socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
+        socketutil:set_timeout(self.file_block_timeout, self.file_total_timeout)
     else
         request.sink = ltn12.sink.table(sink)
-        socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT, socketutil.LARGE_TOTAL_TIMEOUT)
+        socketutil:set_timeout(self.block_timeout, self.total_timeout)
     end
     request.headers = headers
     if body ~= "" then
@@ -1163,6 +1189,10 @@ function Wallabag2:saveSettings()
         remove_finished_from_history = self.remove_finished_from_history,
         remove_read_from_history = self.remove_read_from_history,
         download_queue        = self.download_queue,
+        block_timeout         = self.block_timeout,
+        total_timeout         = self.total_timeout,
+        file_block_timeout    = self.file_block_timeout,
+        file_total_timeout    = self.file_total_timeout,
     }
     self.wb_settings:saveSetting("wallabag", tempsettings)
     self.wb_settings:flush()
@@ -1243,6 +1273,63 @@ function Wallabag2:onCloseDocument()
             self.ui:setLastDirForFileBrowser(self.directory)
         end
     end
+end
+
+function Wallabag2:editTimeoutSettings()
+    self.timeout_settings_dialog = MultiInputDialog:new {
+        title = _("Timeout settings"),
+        fields = {
+            {
+                text = self.block_timeout,
+                description = _("Block timeout (seconds)"),
+                input_type = "number",
+                hint = _("Block timeout")
+            },
+            {
+                text = self.total_timeout,
+                description = _("Total timeout (seconds)"),
+                input_type = "number",
+                hint = _("Total timeout")
+            },
+            {
+                text = self.file_block_timeout,
+                description = _("File block timeout (seconds)"),
+                input_type = "number",
+                hint = _("File block timeout")
+            },
+            {
+                text = self.file_total_timeout,
+                description = _("File total timeout (seconds)"),
+                input_type = "number",
+                hint = _("File total timeout")
+            },
+        },
+        buttons = {
+            {
+                {
+                    text = _("Cancel"),
+                    id = "close",
+                    callback = function()
+                        UIManager:close(self.timeout_settings_dialog)
+                    end
+                },
+                {
+                    text = _("Apply"),
+                    callback = function()
+                        local myfields = self.timeout_settings_dialog:getFields()
+                        self.block_timeout = math.max(1, tonumber(myfields[1]) or self.block_timeout)
+                        self.total_timeout = math.max(1, tonumber(myfields[2]) or self.total_timeout)
+                        self.file_block_timeout = math.max(1, tonumber(myfields[3]) or self.file_block_timeout)
+                        self.file_total_timeout = math.max(1, tonumber(myfields[4]) or self.file_total_timeout)
+                        self:saveSettings(myfields)
+                        UIManager:close(self.timeout_settings_dialog)
+                    end
+                },
+            },
+        },
+    }
+    UIManager:show(self.timeout_settings_dialog)
+    self.timeout_settings_dialog:onShowKeyboard()
 end
 
 return Wallabag2
